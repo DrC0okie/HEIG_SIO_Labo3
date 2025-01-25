@@ -1,5 +1,6 @@
 package montecarlo;
 
+import statistics.InverseStdNormalCDF;
 import statistics.StatCollector;
 
 import java.util.Random;
@@ -52,21 +53,56 @@ public class MonteCarloSimulation {
                                                     long additionalNumberOfRuns,
                                                     Random rnd,
                                                     StatCollector stat) {
-        // Effectuer les simulations initiales
+
+        // Exécuter les réalisations initiales
         simulateNRuns(exp, initialNumberOfRuns, rnd, stat);
 
-        // Boucle jusqu'à ce que la demi-largeur respecte maxHalfWidth
-        while (true) {
-            // Calculer la demi-largeur de l'intervalle de confiance
-            double halfWidth = stat.getConfidenceIntervalHalfWidth(level);
+        // Calculer la demi-largeur initiale de l'intervalle de confiance
+        double initialHalfWidth = stat.getConfidenceIntervalHalfWidth(level);
 
-            // Si la condition est respectée, arrêter
-            if (halfWidth <= maxHalfWidth) {
-                break;
+        // Si la précision souhaitée est déjà atteinte, arrêter
+        if (initialHalfWidth <= maxHalfWidth) {
+            return;
+        }
+
+        // Calculer le nombre total de réalisations nécessaires
+        long additionalSim = calculateAdditionalSim(stat, level, maxHalfWidth, initialNumberOfRuns, additionalNumberOfRuns);
+
+        // Exécuter les réalisations supplémentaires calculées
+        simulateNRuns(exp, additionalSim, rnd, stat);
+
+        // Répéter les simulations additionnelles jusqu'à atteindre la précision souhaitée
+        while (true) {
+            // Recalculer la demi-largeur de l'intervalle de confiance après les nouvelles réalisations
+            double currentHalfWidth = stat.getConfidenceIntervalHalfWidth(level);
+
+            // Vérifier si la demi-largeur est inférieure ou égale à Δmax
+            if (currentHalfWidth <= maxHalfWidth) {
+                break; // Précision atteinte
             }
 
-            // Sinon, effectuer des simulations supplémentaires
+            // Si non, effectuer un lot supplémentaire de Nadd simulations
             simulateNRuns(exp, additionalNumberOfRuns, rnd, stat);
         }
+    }
+
+    private static long calculateAdditionalSim(StatCollector stat,
+                                               double level,
+                                               double maxHalfWidth,
+                                               long initialNumberOfRuns,
+                                               long additionalNumberOfRuns) {
+
+        // Quantile Z_{1-α/2} de la loi normale standard
+        double zQuantile = InverseStdNormalCDF.getQuantile((level + (1 - level) / 2));
+
+        // Rapport normalisé : Z_{1-α/2} * S / Δmax
+        double normalizedErrorFactor = stat.getStandardDeviation() * zQuantile / maxHalfWidth;
+
+        // Nombre total de réalisations nécessaires estimé
+        double estimatedRequiredRuns = normalizedErrorFactor * normalizedErrorFactor;
+
+        // Arrondir au multiple supérieur de Nadd et soustraire les réalisations déjà effectuées
+        long roundedTotalRuns = Math.ceilDiv((long) estimatedRequiredRuns, additionalNumberOfRuns) * additionalNumberOfRuns;
+        return roundedTotalRuns - initialNumberOfRuns;
     }
 }
